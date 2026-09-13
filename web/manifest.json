@@ -1,0 +1,11 @@
+{
+  "name": "الأثيوبي للعقارات",
+  "short_name": "الأثيوبي",
+  "description": "شقق وأراضٍ وعقارات للبيع والإيجار في اليمن",
+  "start_url": ".",
+  "display": "standalone",
+  "dir": "rtl",
+  "lang": "ar",
+  "background_color": "#0B3D2E",
+  "theme_color": "#0B3D2E"
+}

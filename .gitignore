@@ -1,0 +1,44 @@
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+.idea/
+*.iml
+*.ipr
+*.iws
+.DS_Store
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+
+# Android
+local.properties
+android/.gradle/
+android/captures/
+android/app/debug/
+android/app/profile/
+android/app/release/
+*.jks
+*.keystore
+key.properties
+android/key.properties
+
+# Firebase local emulators / debug
+.firebase/
+firestore-debug.log
+ui-debug.log
+firebase-debug.log
+database-debug.log
+
+# Cloud Functions
+functions/node_modules/
+functions/lib/
+
+# Seed scripts
+scripts/node_modules/
+
+# Misc
+*.log
+coverage/
