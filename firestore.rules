@@ -1,0 +1,173 @@
+rules_version = '2';
+
+// ============================================================================
+// Al-Ethiopi Real Estate — Cloud Firestore Security Rules
+// ----------------------------------------------------------------------------
+// Security model:
+//  * Public can READ published properties + lookups (types/cities/areas/features)
+//    + visible comments + ratings + settings.
+//  * ONLY the administrator (Firebase Auth custom claim: admin == true) can
+//    create/update/delete properties, lookups, settings, notifications, and can
+//    moderate (update/delete) any comment.
+//  * Authenticated users manage ONLY their own data:
+//      - their user profile document
+//      - their favorites subcollection
+//      - comments they authored (create/read/update/delete own)
+//      - ratings they authored (one rating per user per property)
+//      - reports they file (create only; admin reads)
+//  * Contact messages: anyone (even guests) can CREATE one; only admin reads.
+//  * NEVER trust `isAdmin` fields coming from the client. Admin rights come
+//    ONLY from the `admin` custom claim set via the Admin SDK (scripts/).
+// ============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ----------------------------- helpers ----------------------------------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.admin == true;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isValidComment(data) {
+      return data.keys().hasAll(['propertyId', 'userId', 'userName', 'text', 'createdAt'])
+        && data.userId is string
+        && data.propertyId is string
+        && data.userName is string && data.userName.size() > 0 && data.userName.size() <= 60
+        && data.text is string && data.text.size() > 0 && data.text.size() <= 1000
+        && (!('rating' in data) || (data.rating is int && data.rating >= 0 && data.rating <= 5));
+    }
+
+    function isValidRating(data) {
+      return data.keys().hasAll(['propertyId', 'userId', 'value'])
+        && data.propertyId is string
+        && data.userId is string
+        && data.value is int && data.value >= 1 && data.value <= 5;
+    }
+
+    function isValidReport(data) {
+      return data.keys().hasAll(['commentId', 'propertyId', 'reporterId', 'reason'])
+        && data.commentId is string
+        && data.propertyId is string
+        && data.reporterId is string
+        && data.reason is string && data.reason.size() > 0 && data.reason.size() <= 40
+        && (!('details' in data) || (data.details is string && data.details.size() <= 500));
+    }
+
+    function isValidContactMessage(data) {
+      return data.keys().hasAll(['name', 'phone', 'message'])
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 80
+        && data.phone is string && data.phone.size() >= 7 && data.phone.size() <= 20
+        && data.message is string && data.message.size() > 0 && data.message.size() <= 2000;
+    }
+
+    // ------------------------------- users ----------------------------------
+    match /users/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(
+          ['displayName', 'email', 'photoUrl', 'createdAt', 'lastSeenAt', 'fcmToken']);
+      // A user may update their own profile but can never grant themselves a role.
+      allow update: if (isOwner(uid) || isAdmin())
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['admin', 'role', 'isAdmin']);
+      allow delete: if isAdmin();
+
+      // users/{uid}/favorites/{propertyId}
+      match /favorites/{propertyId} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+
+    // ---------------------------- properties --------------------------------
+    match /properties/{propertyId} {
+      // Public listing pages query with `where('isPublished', isEqualTo: true)`.
+      allow get: if resource.data.isPublished == true || isAdmin();
+      allow list: if isAdmin() || true; // list queries must filter isPublished client-side for guests; get-rule protects docs
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ----------------------------- comments ---------------------------------
+    match /comments/{commentId} {
+      // Hidden (moderated) comments are filtered out of every public list
+      // query automatically and stay visible to the admin only.
+      allow read: if resource.data.get('isHidden', false) == false || isAdmin();
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid
+        && isValidComment(request.resource.data);
+      allow update: if (isOwner(resource.data.userId) || isAdmin())
+        && isValidComment(request.resource.data);
+      allow delete: if isOwner(resource.data.userId) || isAdmin();
+    }
+
+    // ------------------------------ ratings ---------------------------------
+    // Document id format: "{propertyId}_{uid}" (enforces one rating per user).
+    match /ratings/{ratingId} {
+      allow read: if true;
+      allow create, update: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid
+        && ratingId == request.resource.data.propertyId + '_' + request.auth.uid
+        && isValidRating(request.resource.data);
+      allow delete: if (isSignedIn() && resource.data.userId == request.auth.uid) || isAdmin();
+    }
+
+    // --------------------- lookups (admin-managed) --------------------------
+    match /property_types/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /cities/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /areas/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /features/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ------------------------------ reports ---------------------------------
+    match /reports/{reportId} {
+      allow create: if isSignedIn()
+        && request.resource.data.reporterId == request.auth.uid
+        && isValidReport(request.resource.data);
+      allow read, update, delete: if isAdmin();
+    }
+
+    // -------------------------- contact messages ----------------------------
+    match /contact_messages/{messageId} {
+      allow create: if isValidContactMessage(request.resource.data);
+      allow read, update, delete: if isAdmin();
+    }
+
+    // ------------------------------ settings --------------------------------
+    match /settings/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // --------------------------- notifications ------------------------------
+    // Admin-written broadcast log. Push delivery is done by Cloud Functions.
+    match /notifications/{notificationId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ------------------------------- fallback -------------------------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

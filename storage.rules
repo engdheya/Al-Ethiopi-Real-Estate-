@@ -1,0 +1,42 @@
+rules_version = '2';
+
+// ============================================================================
+// Al-Ethiopi Real Estate — Firebase Storage Security Rules
+// ----------------------------------------------------------------------------
+//  * Property images: public read; ONLY admin can upload/replace/delete.
+//    Max 5 MB per file, images only.
+//  * User avatars: public read; each user manages ONLY their own folder.
+//    Max 2 MB per file, images only.
+// ============================================================================
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.admin == true;
+    }
+
+    function isImage(maxBytes) {
+      return request.resource.size < maxBytes
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Property gallery: properties/{propertyId}/{fileName}
+    match /properties/{propertyId}/{fileName} {
+      allow read: if true;
+      allow write: if isAdmin() && isImage(5 * 1024 * 1024);
+      allow delete: if isAdmin();
+    }
+
+    // User avatars: users/{uid}/{fileName}
+    match /users/{uid}/{fileName} {
+      allow read: if true;
+      allow write: if isSignedIn() && request.auth.uid == uid && isImage(2 * 1024 * 1024);
+      allow delete: if (isSignedIn() && request.auth.uid == uid) || isAdmin();
+    }
+  }
+}

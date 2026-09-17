@@ -1,0 +1,13 @@
+{
+  "name": "alethiopi-admin-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "One-off admin scripts: seed demo data, grant the admin claim.",
+  "scripts": {
+    "seed": "node seed_demo_data.js",
+    "make-admin": "node make_admin.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.7.0"
+  }
+}
